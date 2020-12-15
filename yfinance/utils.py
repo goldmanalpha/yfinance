@@ -131,31 +131,44 @@ def back_adjust(data):
 
 
 def parse_quotes(data, tz=None):
-    timestamps = data["timestamp"]
-    ohlc = data["indicators"]["quote"][0]
-    volumes = ohlc["volume"]
-    opens = ohlc["open"]
-    closes = ohlc["close"]
-    lows = ohlc["low"]
-    highs = ohlc["high"]
+    timestamps = data.get("timestamp")
 
-    adjclose = closes
-    if "adjclose" in data["indicators"]:
-        adjclose = data["indicators"]["adjclose"][0]["adjclose"]
+    if timestamps:
+        ohlc = data["indicators"]["quote"][0]
+        volumes = ohlc["volume"]
+        opens = ohlc["open"]
+        closes = ohlc["close"]
+        lows = ohlc["low"]
+        highs = ohlc["high"]
 
-    quotes = _pd.DataFrame(
-        {
-            "Open": opens,
-            "High": highs,
-            "Low": lows,
-            "Close": closes,
-            "Adj Close": adjclose,
-            "Volume": volumes,
-        }
-    )
+        adjclose = closes
+        if "adjclose" in data["indicators"]:
+            adjclose = data["indicators"]["adjclose"][0]["adjclose"]
 
-    quotes.index = _pd.to_datetime(timestamps, unit="s")
-    quotes.sort_index(inplace=True)
+        quotes = _pd.DataFrame(
+            {
+                "Open": opens,
+                "High": highs,
+                "Low": lows,
+                "Close": closes,
+                "Adj Close": adjclose,
+                "Volume": volumes,
+            }
+        )
+
+        quotes.index = _pd.to_datetime(timestamps, unit="s")
+        quotes.sort_index(inplace=True)
+    else:
+        quotes = _pd.DataFrame(
+            {
+                "Open": [],
+                "High": [],
+                "Low": [],
+                "Close": [],
+                "Adj Close": [],
+                "Volume": [],
+            }
+        )
 
     if tz is not None:
         quotes.index = quotes.index.tz_localize(tz)

@@ -260,17 +260,18 @@ class TickerBase:
         df["Stock Splits"].fillna(0, inplace=True)
 
         # index eod/intraday
-        df.index = df.index.tz_localize("UTC").tz_convert(
-            data["chart"]["result"][0]["meta"]["exchangeTimezoneName"]
-        )
+        if len(df.index.values):
+            df.index = df.index.tz_localize("UTC").tz_convert(
+                data["chart"]["result"][0]["meta"]["exchangeTimezoneName"]
+            )
 
-        if params["interval"][-1] == "m":
-            df.index.name = "Datetime"
-        else:
-            df.index = _pd.to_datetime(df.index.date)
-            if tz is not None:
-                df.index = df.index.tz_localize(tz)
-            df.index.name = "Date"
+            if params["interval"][-1] == "m":
+                df.index.name = "Datetime"
+            else:
+                df.index = _pd.to_datetime(df.index.date)
+                if tz is not None:
+                    df.index = df.index.tz_localize(tz)
+                df.index.name = "Date"
 
         self._history = df.copy()
 
@@ -283,13 +284,16 @@ class TickerBase:
 
     def _get_fundamentals(self, kind=None, proxy=None):
         def cleanup(data):
-            df = _pd.DataFrame(data).drop(columns=["maxAge"])
+            df = _pd.DataFrame(data)
+            if "maxAge" in df.columns:
+                df.drop(columns=["maxAge"])
             for col in df.columns:
                 df[col] = _np.where(
                     df[col].astype(str) == "-", _np.nan, df[col]
                 )
 
-            df.set_index("endDate", inplace=True)
+            if "endDate" in df.columns:
+                df.set_index("endDate", inplace=True)
             try:
                 df.index = _pd.to_datetime(df.index, unit="s")
             except ValueError:
@@ -320,7 +324,12 @@ class TickerBase:
 
         # holders
         #       url = "{}/{}/holders".format(self._scrape_url, self.ticker)
-        holders = _pd.read_html(url + "/holders")
+        holders = []
+        try:
+            holders = _pd.read_html(url + "/holders")
+        except ValueError:
+            pass
+
         if len(holders) > 1:
             self._major_holders = holders[0]
             self._institutional_holders = holders[1]
@@ -344,13 +353,16 @@ class TickerBase:
 
         # sustainability
         d = {}
-        if isinstance(data.get("esgScores"), dict):
+        if isinstance(data.get("esgScores"), dict) and not data.get(
+            "esgScores"
+        ).get("err"):
             for item in data["esgScores"]:
                 if not isinstance(data["esgScores"][item], (dict, list)):
                     d[item] = data["esgScores"][item]
 
             s = _pd.DataFrame(index=[0], data=d)[-1:].T
             s.columns = ["Value"]
+
             s.index.name = "%.f-%.f" % (
                 s[s.index == "ratingYear"]["Value"].values[0],
                 s[s.index == "ratingMonth"]["Value"].values[0],
@@ -380,7 +392,7 @@ class TickerBase:
         self._info["logo_url"] = ""
         try:
             domain = (
-                self._info["website"]
+                (self._info.get("website") or "://")
                 .split("://")[1]
                 .split("/")[0]
                 .replace("www.", "")
@@ -393,22 +405,25 @@ class TickerBase:
 
         # events
         try:
-            cal = _pd.DataFrame(data["calendarEvents"]["earnings"])
-            cal["earningsDate"] = _pd.to_datetime(
-                cal["earningsDate"], unit="s"
-            )
-            self._calendar = cal.T
-            self._calendar.index = utils.camel2title(self._calendar.index)
+            if data.get("calendarEvents"):
+                cal = _pd.DataFrame(data["calendarEvents"]["earnings"])
+                cal["earningsDate"] = _pd.to_datetime(
+                    cal["earningsDate"], unit="s"
+                )
+                self._calendar = cal.T
+                self._calendar.index = utils.camel2title(
+                    self._calendar.index
+                )
 
-            if len(self._calendar.columns) == 1:
-                self._calendar.columns = ["Value"]
+                if len(self._calendar.columns) == 1:
+                    self._calendar.columns = ["Value"]
         except Exception:
             pass
 
         # analyst recommendations
         try:
 
-            if data["upgradeDowngradeHistory"]["history"]:
+            if (data.get("upgradeDowngradeHistory") or {}).get("history"):
                 rec = _pd.DataFrame(
                     data["upgradeDowngradeHistory"]["history"]
                 )
@@ -441,7 +456,9 @@ class TickerBase:
         ):
 
             item = key[1] + "History"
-            if isinstance(data.get(item), dict):
+            if isinstance(data.get(item), dict) and not data.get(
+                item, {"err": True}
+            ).get("err"):
                 key[0]["yearly"] = cleanup(data[item][key[2]])
 
             item = key[1] + "HistoryQuarterly"
@@ -451,15 +468,18 @@ class TickerBase:
         # earnings
         if isinstance(data.get("earnings"), dict):
             earnings = data["earnings"]["financialsChart"]
-            df = _pd.DataFrame(earnings["yearly"]).set_index("date")
-            df.columns = utils.camel2title(df.columns)
-            df.index.name = "Year"
-            self._earnings["yearly"] = df
 
-            df = _pd.DataFrame(earnings["quarterly"]).set_index("date")
-            df.columns = utils.camel2title(df.columns)
-            df.index.name = "Quarter"
-            self._earnings["quarterly"] = df
+            if earnings["yearly"]:
+                df = _pd.DataFrame(earnings["yearly"]).set_index("date")
+                df.columns = utils.camel2title(df.columns)
+                df.index.name = "Year"
+                self._earnings["yearly"] = df
+
+            if earnings["quarterly"]:
+                df = _pd.DataFrame(earnings["quarterly"]).set_index("date")
+                df.columns = utils.camel2title(df.columns)
+                df.index.name = "Quarter"
+                self._earnings["quarterly"] = df
 
         self._fundamentals = True
 
